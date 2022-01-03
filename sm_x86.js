@@ -41,6 +41,24 @@ const TagToName = {
     [JSVAL_TYPE_MISSING]: "Missing",
 };
 
+const FunctionConstants = {
+    0x0001: "INTERPRETED",
+    0x0002: "NATIVE_CTOR",
+    0x0004: "EXTENDED",
+    0x0010: "IS_FUN_PROTO",
+    0x0020: "EXPR_CLOSURE",
+    0x0040: "HAS_GUESSED_ATOM",
+    0x0080: "LAMBDA",
+    0x0100: "SELF_HOSTED",
+    0x0200: "SELF_HOSTED_CTOR",
+    0x0400: "HAS_REST",
+    0x0800: "HAS_DEFAULTS",
+    0x1000: "INTERPRETED_LAZY",
+    0x2000: "ARROW",
+    0x4000: "SH_WRAPPABLE",
+    0x0000: "NATIVE_FUN",
+};
+
 function printable(Byte) {
     return Byte >= 0x20 && Byte <= 0x7e;
 }
@@ -59,6 +77,29 @@ function byte_to_str(Byte) {
     }
 
     return "\\x" + Byte.toString(16).padStart(2, "0");
+}
+
+function read_u64(Addr) {
+    return host.memory.readMemoryValues(Addr, 1, 8)[0];
+}
+
+function read_u32(Addr) {
+    return host.memory.readMemoryValues(Addr, 1, 4)[0];
+}
+
+function read_u16(Addr) {
+    return host.memory.readMemoryValues(Addr, 1, 2)[0];
+}
+
+function jsvalue_to_instance(Addr) {
+    const JSValue = new __JSValue(Addr);
+    if (!TagToName.hasOwnProperty(JSValue.Tag)) {
+        return "Dunno";
+    }
+
+    const Name = TagToName[JSValue.Tag];
+    const Type = NamesToTypes[Name];
+    return new Type(JSValue.Payload);
 }
 
 class __JSInt32 {
@@ -87,14 +128,14 @@ class __JSString {
         this._Addr = Addr.bitwiseAnd(0xFFFFFFFF);
 
         //获取JSString中lengthAndFlags字段并从中解析出字符串的长度和Flag
-        this._lengthAndFlags = host.memory.readMemoryValues(this._Addr, 1, 4)[0];
+        this._lengthAndFlags = read_u32(this._Addr);
         this._length = this._lengthAndFlags.bitwiseShiftRight(STRING_LENGTH_SHIFT);
         this._Flag = this._lengthAndFlags.bitwiseAnd(STRING_FLAG_MASK);
 
         if (FlagToStringType.hasOwnProperty(this._Flag)) {
             switch (FlagToStringType[this._Flag]) {
                 case "Atom":
-                    this._inlineStorage = host.memory.readMemoryValues(this._Addr + 4, 1, 4)[0];
+                    this._inlineStorage = read_u32(this._Addr + 4);
                     this._String = Array.from(host.memory.readMemoryValues(this._inlineStorage, this._length * 2, 1)).map(p => byte_to_str(p)).join('');
             }
         }
@@ -132,20 +173,265 @@ class __JSBoolean {
     }
 }
 
+class __JSDouble {
+    constructor(Addr) {
+        this._Addr = Addr;
+    }
+
+    toString() {
+        const u32 = new Uint32Array([this._Addr.getLowPart(), this._Addr.getHighPart()]);
+        const f64 = new Float64Array(u32.buffer);
+        return f64[0];
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ": JSVAL_TYPE_DOUBLE: " + Content);
+    }
+
+    Display() {
+        this.Logger(this);
+    }
+}
+
+class __JSNull {
+    constructor(Addr) {
+        this._Addr = Addr;
+    }
+
+    toString() {
+        return "null";
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ": JSVAL_TYPE_NULL: " + Content);
+    }
+
+    Display() {
+        this.Logger(this);
+    }
+}
+
+class __JSUndefined {
+    constructor(Addr) {
+        this._Addr = Addr;
+    }
+
+    toString() {
+        return "Undefined";
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ": JSVAL_TYPE_UNDEFINED: " + Content);
+    }
+
+    Display() {
+        this.Logger(this);
+    }
+}
+
+class __JSMagic {
+    constructor(Addr) {
+        this._Addr = Addr;
+    }
+
+    toString() {
+        return "Magic";
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ": JSVAL_TYPE_MAGIC: " + Content);
+    }
+
+    Display() {
+        this.Logger(this);
+    }
+}
+
+class __JSArray {
+    constructor(Addr) {
+        this._Addr = Addr;
+        //JSArray:shape_,type_,slot_,elements_
+        this._elements = read_u32(this._Addr + 0xC);
+        this._ObjectElements = this._elements - 0x10;
+        //ObjectElements:flags,initializedlength,capacity,length
+        this._Flags = read_u32(this._ObjectElements);
+        this._InitializedLength = read_u32(this._ObjectElements + 0x4);
+        this._Capacity = read_u32(this._ObjectElements + 0x8);
+        this._Length = read_u32(this._ObjectElements + 0xC);
+    }
+
+    toString() {
+        const Max = 10;
+        const Content = [];
+
+        for (let Idx = 0; Idx < Math.min(Max, this._InitializedLength); Idx++) {
+            const Addr = this._elements.add(Idx * 8);
+            const JSValue = read_u64(Addr);
+            const Inst = jsvalue_to_instance(JSValue);
+            Content.push(Inst.toString(16));
+        }
+
+        return '[' + Content.join(', ') + (this._Length > Max ? ', ...' : '') + ']';
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ': js!js::ArrayObject: ' + Content);
+    }
+
+    Display() {
+        this.Logger('           Length: ' + this._Length);
+        this.Logger('         Capacity: ' + this._Capacity);
+        this.Logger('InitializedLength: ' + this._InitializedLength);
+        this.Logger('          Content: ' + this);
+    }
+}
+
+class __JSFunction {
+    constructor(Addr) {
+        this._Addr = Addr;
+        this._Atom = read_u32(this._Addr + 0x24);
+        this._Name = "<anonymous>";
+
+        if (this._Atom.compareTo(0) != 0) {
+            this._Name = new __JSString(this._Atom).toString().slice(1, -1);
+        }
+
+        this._Name += "()";
+        this._Flags = read_u16(this._Addr + 0x18);
+        this._nArgs = read_u16(this._Addr + 0x1A);
+    }
+
+    toString() {
+        return this._Name;
+    }
+
+    get Flags() {
+        const S = [];
+        for (const Key in FunctionConstants) {
+            if (this._Flags.bitwiseAnd(host.parseInt64(Key)).compareTo(0) != 0) {
+                S.push(FunctionConstants[Key]);
+            }
+        }
+
+        return S.join(' | ');
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ': js!JSFunction: ' + Content);
+    }
+
+    Display() {
+        this.Logger(this);
+        this.Logger("Flags: " + this._Flags);
+        this.Logger("Args: " + this._nArgs.toString(16));
+    }
+}
+
+class __JSArrayBuffer {
+    constructor(Addr) {
+        this._Addr = Addr;
+        //JSObject:shape_，type_，slot，elements
+        this._elements = read_u32(this._Addr + 0xC);
+        this._ElementsHeader = this._elements - 0x10;
+        //ElementsHeader：flag，length
+        this._ByteLength = read_u32(this._ElementsHeader + 4);
+    }
+
+    get ByteLength() {
+        return this._ByteLength;
+    }
+
+    toString() {
+        return 'ArrayBuffer({ByteLength:' + this._ByteLength + ', ...})';
+    }
+
+    Logger(Content) {
+        logln(this._Obj.address.toString(16) + ': js!js::ArrayBufferObject: ' + Content);
+    }
+
+    Display() {
+        this.Logger('ByteLength: ' + this.ByteLength);
+        this.Logger('   Content: ' + this);
+    }
+}
+
+class __JSObject {
+    constructor(Addr) {
+        this._Addr = Addr;
+        this._Properties = [];
+        //JSObject:shape,types,slots,elements
+        this._Shape = read_u32(this._Addr);
+        this._types = read_u32(this._Addr + 4);
+        this._slots = read_u32(this._Addr + 8);
+        this._elements = read_u32(this._Addr + 0xC);
+
+        //TypeObject:clasp
+        this._clasp = read_u32(this._types);
+        //Class:name,flags
+        const ClassNameAddr = read_u32(this._clasp);
+        this._ClassName = host.memory.readString(ClassNameAddr);
+        logIn("JSObject ClassName: " + this._ClassName);
+        const ClassFlagsAddr = read_u32(this._clasp + 4);
+
+        if (this._ClassName == "Array") {
+            //Array对象类型获取长度后直接返回
+            const ObjectElementsAddr = this._elements - 0x10;
+            this._Properties.push("length: " + read_u32(ObjectElementsAddr + 0xC));
+            return;
+        }
+    }
+
+    get Properties() {
+        return this._Properties;
+    }
+
+    get ClassName() {
+        return this._ClassName;
+    }
+
+    toString() {
+        if (this._ClassName != "Object" && NamesToTypes.hasOwnProperty(this._ClassName)) {
+            //对象有具体类型交由具体类型进行处理
+            const Type = NamesToTypes[this._ClassName];
+            return new Type(this._Addr).toString();
+        }
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ': js!JSObject: ' + Content);
+    }
+
+    Display() {
+        this.Logger('Content: ' + this);
+        if (this._ClassName != 'Object') {
+            this.Logger('Properties: {' + this._Properties.join(', ') + '}');
+        }
+    }
+}
+
 //将类型字符串转换为对应的具体类型对象
 const NamesToTypes = {
     "Int32": __JSInt32,
     "String": __JSString,
     "Boolean": __JSBoolean,
+    "Double": __JSDouble,
+    "Null": __JSNull,
+    "Undefined": __JSUndefined,
+    "Magic": __JSMagic,
+
+    "Object": __JSObject,
+    "Array": __JSArray,
+    "Function": __JSFunction,
 };
 
+//对传入数据进行处理，传入数据为8字节
 class __JSValue {
     constructor(Addr) {
         this._Addr = Addr;
         //取变量的类型，类型为数值高4字节与0xFFFFFF80亦或
         this._Tag = this._Addr.bitwiseShiftRight(JSVAL_TAG_SHIFT);
         this._Tag = this._Tag.bitwiseXor(JSVAL_TAG_XOR);
-        this._IsDouble = this._Tag.compareTo(JSVAL_TYPE_DOUBLE) < 0;
+        this._IsDouble = !TagToName.hasOwnProperty(this._Tag);
         //取变量的具体值，具体值为数值低四字节与0xFFFFFFFF亦或
         this._Payload = this._Addr.bitwiseAnd(JAVAL_PAYLOAD_MASK);
     }
@@ -185,6 +471,7 @@ function Init() {
     Module = "js.exe";
 }
 
+//对传入的数据进行处理，传入数据为8字节
 function smdump_jsvalue(Addr) {
     if (Addr == undefined) {
         logIn("!smdump_jsvalue <jsvalue object addr>");
@@ -205,6 +492,7 @@ function smdump_jsvalue(Addr) {
     return smdump_jsobject(JSValue.Payload, Name);
 }
 
+//对传入的数据以及类型进行处理
 function smdump_jsobject(Addr, Type = null) {
     if (Addr.hasOwnProperty("address")) {
         Addr = Addr.address;
@@ -213,6 +501,11 @@ function smdump_jsobject(Addr, Type = null) {
     let ClassName;
     if (Type == "Object" || Type == null) {
         //如果传入值类型为对象或者未指定类型，先将该值作为对象处理
+        const JSObject = new __JSObject(Addr);
+        ClassName = JSObject.ClassName;
+        if (!NamesToTypes.hasOwnProperty(ClassName)) {
+            JSObject.Display();
+        }
     } else {
         //传入值有指定对象
         ClassName = Type;
