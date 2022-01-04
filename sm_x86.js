@@ -2,7 +2,7 @@
 
 let Module = null;
 
-const logIn = p => host.diagnostics.debugLog(p + '\n');
+const logIn = p => host.diagnostics.debugLog(p + "\n");
 const JSVAL_TAG_XOR = host.parseInt64("0xFFFFFF80");
 const JSVAL_TAG_SHIFT = host.parseInt64("32");
 const JAVAL_PAYLOAD_MASK = host.parseInt64("0xFFFFFFFF");
@@ -136,7 +136,7 @@ class __JSString {
             switch (FlagToStringType[this._Flag]) {
                 case "Atom":
                     this._inlineStorage = read_u32(this._Addr + 4);
-                    this._String = Array.from(host.memory.readMemoryValues(this._inlineStorage, this._length * 2, 1)).map(p => byte_to_str(p)).join('');
+                    this._String = Array.from(host.memory.readMemoryValues(this._inlineStorage, this._length * 2, 1)).map(p => byte_to_str(p)).join("");
             }
         }
     }
@@ -165,7 +165,7 @@ class __JSBoolean {
     }
 
     Logger(Content) {
-        logIn(this._Addr.toString(16) + ': JSVAL_TYPE_BOOLEAN: ' + Content);
+        logIn(this._Addr.toString(16) + ": JSVAL_TYPE_BOOLEAN: " + Content);
     }
 
     Display() {
@@ -271,18 +271,18 @@ class __JSArray {
             Content.push(Inst.toString(16));
         }
 
-        return '[' + Content.join(', ') + (this._Length > Max ? ', ...' : '') + ']';
+        return "[" + Content.join(", ") + (this._Length > Max ? ", ..." : "") + "]";
     }
 
     Logger(Content) {
-        logIn(this._Addr.toString(16) + ': js!js::ArrayObject: ' + Content);
+        logIn(this._Addr.toString(16) + ": js!js::ArrayObject: " + Content);
     }
 
     Display() {
-        this.Logger('           Length: ' + this._Length);
-        this.Logger('         Capacity: ' + this._Capacity);
-        this.Logger('InitializedLength: ' + this._InitializedLength);
-        this.Logger('          Content: ' + this);
+        this.Logger("Length: " + this._Length);
+        this.Logger("Capacity: " + this._Capacity);
+        this.Logger("InitializedLength: " + this._InitializedLength);
+        this.Logger("Content: " + this);
     }
 }
 
@@ -297,8 +297,8 @@ class __JSFunction {
         }
 
         this._Name += "()";
-        this._Flags = read_u16(this._Addr + 0x18);
-        this._nArgs = read_u16(this._Addr + 0x1A);
+        this._Flags = read_u16(this._Addr + 0x1A);
+        this._nArgs = read_u16(this._Addr + 0x18);
     }
 
     toString() {
@@ -313,16 +313,16 @@ class __JSFunction {
             }
         }
 
-        return S.join(' | ');
+        return S.join(" | ");
     }
 
     Logger(Content) {
-        logIn(this._Addr.toString(16) + ': js!JSFunction: ' + Content);
+        logIn(this._Addr.toString(16) + ": js!JSFunction: " + Content);
     }
 
     Display() {
         this.Logger(this);
-        this.Logger("Flags: " + this._Flags);
+        this.Logger("Flags: " + this.Flags);
         this.Logger("Args: " + this._nArgs.toString(16));
     }
 }
@@ -342,16 +342,71 @@ class __JSArrayBuffer {
     }
 
     toString() {
-        return 'ArrayBuffer({ByteLength:' + this._ByteLength + ', ...})';
+        return "ArrayBuffer({ByteLength:" + this._ByteLength + ", ...})";
     }
 
     Logger(Content) {
-        logln(this._Obj.address.toString(16) + ': js!js::ArrayBufferObject: ' + Content);
+        logIn(this._Addr.toString(16) + ": js!js::ArrayBufferObject: " + Content);
     }
 
     Display() {
-        this.Logger('ByteLength: ' + this.ByteLength);
-        this.Logger('   Content: ' + this);
+        this.Logger("ByteLength: " + this.ByteLength);
+        this.Logger("Content: " + this);
+    }
+}
+
+class __JSTypedArray {
+    constructor(Addr) {
+        this._Addr = Addr;
+        //JSObject:shape,types,slots,elements
+        this._Shape = read_u32(this._Addr);
+        this._types = read_u32(this._Addr + 4);
+        this._slots = read_u32(this._Addr + 8);
+        this._elements = read_u32(this._Addr + 0xC);
+
+        //TypeObject:clasp
+        this._clasp = read_u32(this._types);
+        //Class:name,flags
+        const ClassNameAddr = read_u32(this._clasp);
+        this._ClassName = host.memory.readString(ClassNameAddr);
+        const Sizes = {
+            "Float64Array": 8,
+            "Float32Array": 4,
+            "Uint32Array": 4,
+            "Int32Aray": 4,
+            "Uint16Array": 2,
+            "Int16Array": 2,
+            "Uint8Array": 1,
+            "Int8Array": 1,
+            "Uint8ClampedArray": 1,
+        };
+        const Slot_offset = {
+            "LENGTH_OFFSET": 5,
+            "DATA_OFFSET": 7,
+        }
+        this._ElementSize = Sizes[this._ClassName];
+        this._Length = read_u64(this._Addr + 0x18 + 0x8 * Slot_offset["LENGTH_OFFSET"]);
+        this._DataAddr = read_u32(this._Addr + 0x18 + 0x8 * Slot_offset["DATA_OFFSET"]);
+    }
+
+    get Length() {
+        return new __JSInt32(this._Length).toString(16);
+    }
+
+    get DataAddr() {
+        return this._DataAddr.toString();
+    }
+
+    toString() {
+        return "Length: " + this.Length + " ContentAddr: 0x" + this._DataAddr.toString(16);
+    }
+
+    Logger(Content) {
+        logIn(this._Addr.toString(16) + ": js!js::TypedArrayObject: " + Content);
+    }
+
+    Display() {
+        this.Logger("Content: " + this);
     }
 }
 
@@ -379,6 +434,10 @@ class __JSObject {
             this._Properties.push("length: " + read_u32(ObjectElementsAddr + 0xC));
             return;
         }
+
+        //遍历shape获取对象属性
+        const Properties = {};
+        let CurrentShape = this._Shape;
     }
 
     get Properties() {
@@ -395,16 +454,30 @@ class __JSObject {
             const Type = NamesToTypes[this._ClassName];
             return new Type(this._Addr).toString();
         }
+
+        if (this._ClassName != "Object") {
+            return this._ClassName;
+        }
+
+        if (this._Properties != undefined && this._Properties.length > 0) {
+            return '{' + this._Properties.join(', ') + '}';
+        }
+
+        if (this._ClassName == 'Object') {
+            return '[Object]';
+        }
+
+        return "Dunno";
     }
 
     Logger(Content) {
-        logIn(this._Addr.toString(16) + ': js!JSObject: ' + Content);
+        logIn(this._Addr.toString(16) + ": js!JSObject: " + Content);
     }
 
     Display() {
-        this.Logger('Content: ' + this);
-        if (this._ClassName != 'Object') {
-            this.Logger('Properties: {' + this._Properties.join(', ') + '}');
+        this.Logger("Content: " + this);
+        if (this._ClassName != "Object") {
+            this.Logger("Properties: {" + this._Properties.join(", ") + "}");
         }
     }
 }
@@ -422,6 +495,17 @@ const NamesToTypes = {
     "Object": __JSObject,
     "Array": __JSArray,
     "Function": __JSFunction,
+    "ArrayBuffer": __JSArrayBuffer,
+
+    "Float64Array": __JSTypedArray,
+    "Float32Array": __JSTypedArray,
+    "Uint32Array": __JSTypedArray,
+    "Int32Array": __JSTypedArray,
+    "Uint16Array": __JSTypedArray,
+    "Int16Array": __JSTypedArray,
+    "Uint8Array": __JSTypedArray,
+    "Int8Array": __JSTypedArray,
+    "Uint8ClampedArray": __JSTypedArray,
 };
 
 //对传入数据进行处理，传入数据为8字节
@@ -479,7 +563,7 @@ function smdump_jsvalue(Addr) {
     }
 
     //使用parseInt64将字符串格式化为16进制数，然后与传入地址做亦或
-    Addr = Addr.bitwiseAnd(host.parseInt64('0xFFFFFFFFFFFFFFFF'));
+    Addr = Addr.bitwiseAnd(host.parseInt64("0xFFFFFFFFFFFFFFFF"));
     const JSValue = new __JSValue(Addr);
     if (!TagToName.hasOwnProperty(JSValue.Tag)) {
         logIn("Tag " + JSValue.Tag.toString(16) + " Not Recognized");
