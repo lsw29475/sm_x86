@@ -59,6 +59,9 @@ const FunctionConstants = {
     0x0000: "NATIVE_FUN",
 };
 
+const SLOT_MASK = host.Int64(0xffffff);
+const SLOT_SHIFT_RIGHT = host.Int64(27);
+
 function printable(Byte) {
     return Byte >= 0x20 && Byte <= 0x7e;
 }
@@ -100,6 +103,14 @@ function jsvalue_to_instance(Addr) {
     const Name = TagToName[JSValue.Tag];
     const Type = NamesToTypes[Name];
     return new Type(JSValue.Payload);
+}
+
+function get_property_from_shape(Shape) {
+    const Proid_ = read_u32(Shape + 0x4);
+
+    if(jsid_is_int(Proid_)){
+        return 
+    }
 }
 
 class __JSInt32 {
@@ -438,6 +449,14 @@ class __JSObject {
         //遍历shape获取对象属性
         const Properties = {};
         let CurrentShape = this._Shape;
+        //读取下一个shape
+        while (read_u32(CurrentShape + 0x10).compareTo(0) != 0) {
+            const slotInfo = read_u32(CurrentShape + 0x8);
+            const slotIdx = slotInfo.bitwiseAnd(SLOT_MASK) - slotInfo.bitwiseShiftRight(SLOT_SHIFT_RIGHT);
+            //获取对应属性索引的属性名
+            Properties[slotIdx] = get_property_from_shape(CurrentShape);
+            CurrentShape = read_u32(CurrentShape + 0x10);
+        }
     }
 
     get Properties() {
