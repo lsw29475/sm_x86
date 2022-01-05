@@ -27,7 +27,6 @@ const FlagToStringType = {
     [JSVAL_FLAG_ATOM]: "Atom",
 }
 
-//将类型转换为对应类型的字符串
 const TagToName = {
     [JSVAL_TYPE_DOUBLE]: "Double",
     [JSVAL_TYPE_INT32]: "Int32",
@@ -132,7 +131,6 @@ class __JSInt32 {
         this._Value = Addr.bitwiseAnd(0xFFFFFFFF);
     }
 
-    //Int32类型值可直接转字符串展示
     toString() {
         return "0x" + this._Value.toString(16);
     }
@@ -148,10 +146,8 @@ class __JSInt32 {
 
 class __JSString {
     constructor(Addr) {
-        //获取字符串对象的地址
         this._Addr = Addr.bitwiseAnd(0xFFFFFFFF);
 
-        //获取JSString中lengthAndFlags字段并从中解析出字符串的长度和Flag
         this._lengthAndFlags = read_u32(this._Addr);
         this._length = this._lengthAndFlags.bitwiseShiftRight(STRING_LENGTH_SHIFT);
         this._Flag = this._lengthAndFlags.bitwiseAnd(STRING_FLAG_MASK);
@@ -468,37 +464,30 @@ class __JSObject {
         this._ClassName = host.memory.readString(ClassNameAddr);
 
         if (this._ClassName == "Array") {
-            //Array对象类型获取长度后直接返回
             const ObjectElementsAddr = this._elements - 0x10;
             this._Properties.push("length: " + read_u32(ObjectElementsAddr + 0xC));
             return;
         }
 
-        //遍历shape获取对象属性
         const Properties = {};
         let CurrentShape = this._Shape;
         let ElementAddr = undefined;
-        //判断下一个shape是否为空
         while (read_u32(CurrentShape + 0x10).compareTo(0) != 0) {
             const slotInfo = read_u32(CurrentShape + 0x8);
             let slotIdx = slotInfo.bitwiseAnd(SLOT_MASK) - slotInfo.bitwiseShiftRight(SLOT_SHIFT_RIGHT);
             if (slotIdx >= 0) {
-                //获取对应属性索引的属性名
                 Properties[slotIdx] = get_property_from_shape(CurrentShape);
                 ElementAddr = this._slots + slotIdx * 8;
             }
             else {
-                //获取slotfix中属性的属性名
                 slotIdx = Properties.length;
                 Properties[slotIdx] = get_property_from_shape(CurrentShape);
                 ElementAddr = this._Addr + 0x18 + slotInfo.bitwiseAnd(SLOT_MASK) * 8;
             }
 
-            //获取属性名对应的属性值
             const JSValue = read_u64(ElementAddr);
             this._Properties.push(Properties[slotIdx] + ' : ' + JSValue.toString(16));
 
-            //读取下一个shape
             CurrentShape = read_u32(CurrentShape + 0x10);
         }
     }
@@ -513,7 +502,6 @@ class __JSObject {
 
     toString() {
         if (this._ClassName != "Object" && NamesToTypes.hasOwnProperty(this._ClassName)) {
-            //对象有具体类型交由具体类型进行处理
             const Type = NamesToTypes[this._ClassName];
             return new Type(this._Addr).toString();
         }
@@ -545,7 +533,6 @@ class __JSObject {
     }
 }
 
-//将类型字符串转换为对应的具体类型对象
 const NamesToTypes = {
     "Int32": __JSInt32,
     "String": __JSString,
@@ -571,15 +558,12 @@ const NamesToTypes = {
     "Uint8ClampedArray": __JSTypedArray,
 };
 
-//对传入数据进行处理，传入数据为8字节
 class __JSValue {
     constructor(Addr) {
         this._Addr = Addr;
-        //取变量的类型，类型为数值高4字节与0xFFFFFF80亦或
         this._Tag = this._Addr.bitwiseShiftRight(JSVAL_TAG_SHIFT);
         this._Tag = this._Tag.bitwiseXor(JSVAL_TAG_XOR);
         this._IsDouble = !TagToName.hasOwnProperty(this._Tag);
-        //取变量的具体值，具体值为数值低四字节与0xFFFFFFFF亦或
         this._Payload = this._Addr.bitwiseAnd(JAVAL_PAYLOAD_MASK);
     }
 
@@ -598,34 +582,12 @@ class __JSValue {
     }
 }
 
-function Init() {
-    if (Module != null) {
-        return;
-    }
-
-    //调用host对象的currentProcess属性，返回当前进程对象，再从进程对象中找到EScript.api模块的模块对象
-    const Escript = host.currentProcess.Modules.Any(
-        p => p.Name.toLowerCase().endsWith("escript.api")
-    );
-
-    if (Escript) {
-        Module = "EScript.api";
-        logIn("find EScript.api");
-        return;
-    }
-
-    logIn("can't find EScript.api");
-    Module = "js.exe";
-}
-
-//对传入的数据进行处理，传入数据为8字节
 function smdump_jsvalue(Addr) {
     if (Addr == undefined) {
         logIn("!smdump_jsvalue <jsvalue object addr>");
         return;
     }
 
-    //使用parseInt64将字符串格式化为16进制数，然后与传入地址做亦或
     Addr = Addr.bitwiseAnd(host.parseInt64("0xFFFFFFFFFFFFFFFF"));
     const JSValue = new __JSValue(Addr);
     if (!TagToName.hasOwnProperty(JSValue.Tag)) {
@@ -635,11 +597,9 @@ function smdump_jsvalue(Addr) {
 
     const Name = TagToName[JSValue.Tag];
     logIn("Tag " + Name);
-    //将类型以及载荷数据传递给smdump_jsobject处理
     return smdump_jsobject(JSValue.Payload, Name);
 }
 
-//对传入的数据以及类型进行处理
 function smdump_jsobject(Addr, Type = null) {
     if (Addr.hasOwnProperty("address")) {
         Addr = Addr.address;
@@ -647,30 +607,24 @@ function smdump_jsobject(Addr, Type = null) {
 
     let ClassName;
     if (Type == "Object" || Type == null) {
-        //如果传入值类型为对象或者未指定类型，先将该值作为对象处理
         const JSObject = new __JSObject(Addr);
         ClassName = JSObject.ClassName;
         if (!NamesToTypes.hasOwnProperty(ClassName)) {
             JSObject.Display();
         }
     } else {
-        //传入值有指定对象
         ClassName = Type;
     }
 
-    //根据传入值的具体类型，选择具体的类来进行数据展示
     if (NamesToTypes.hasOwnProperty(ClassName)) {
         const Inst = new NamesToTypes[ClassName](Addr);
         Inst.Display();
     }
 }
 
-//脚本加载后首先执行该函数
 function initializeScript() {
     return [
-        //表示使用的JsProvider API版本
         new host.apiVersionSupport(1, 3),
-        //使用functionAlias定义命令，该命令与数据模型函数对象关联
         new host.functionAlias(smdump_jsvalue, "smdump_jsvalue"),
         new host.functionAlias(smdump_jsobject, "smdump_jsobject")];
 }
