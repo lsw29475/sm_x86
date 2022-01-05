@@ -323,6 +323,7 @@ class __JSFunction {
         this._Name += "()";
         this._Flags = read_u16(this._Addr + 0x1A);
         this._nArgs = read_u16(this._Addr + 0x18);
+        this._nativeOrScript = read_u32(this._Addr + 0x1C);
     }
 
     toString() {
@@ -340,6 +341,21 @@ class __JSFunction {
         return S.join(" | ");
     }
 
+    get nativeOrScript() {
+        for (const Key in FunctionConstants) {
+            if (this._Flags.bitwiseAnd(host.parseInt64(Key)).compareTo(0) != 0 && FunctionConstants[Key] == "INTERPRETED") {
+                const bytecodeAddr = read_u32(this._nativeOrScript + 0xC);
+                const sourceObject = read_u32(this._nativeOrScript + 0x24);
+                const ScriptSource = read_u32(sourceObject + 0x18);
+                const source = read_u32(ScriptSource);
+                const filename = read_u32(ScriptSource + 0x10);
+                return "bytecodeAddr: " + bytecodeAddr.toString(16) + " " + "source: " + source.toString(16) + " " + "filename: " + filename.toString(16);
+            }
+        }
+
+        return this._nativeOrScript.toString(16);
+    }
+
     Logger(Content) {
         logIn(this._Addr.toString(16) + ": js!JSFunction: " + Content);
     }
@@ -348,6 +364,7 @@ class __JSFunction {
         this.Logger(this);
         this.Logger("Flags: " + this.Flags);
         this.Logger("Args: " + this._nArgs.toString(16));
+        this.Logger("NativeOrScript: " + this.nativeOrScript);
     }
 }
 
