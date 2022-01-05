@@ -106,11 +106,9 @@ function jsvalue_to_instance(Addr) {
 }
 
 function get_property_from_shape(Shape) {
-    const Proid_ = read_u32(Shape + 0x4);
-
-    if(jsid_is_int(Proid_)){
-        return 
-    }
+    //Shape:base_，propid_
+    const Propid_ = read_u32(Shape + 0x4);
+    return new __JSString(Propid_).toString(16);
 }
 
 class __JSInt32 {
@@ -436,7 +434,6 @@ class __JSObject {
         //Class:name,flags
         const ClassNameAddr = read_u32(this._clasp);
         this._ClassName = host.memory.readString(ClassNameAddr);
-        logIn("JSObject ClassName: " + this._ClassName);
         const ClassFlagsAddr = read_u32(this._clasp + 4);
 
         if (this._ClassName == "Array") {
@@ -449,12 +446,29 @@ class __JSObject {
         //遍历shape获取对象属性
         const Properties = {};
         let CurrentShape = this._Shape;
-        //读取下一个shape
+        let ElementAddr = undefined;
+        let PropertyValue = undefined;
+        //判断下一个shape是否为空
         while (read_u32(CurrentShape + 0x10).compareTo(0) != 0) {
             const slotInfo = read_u32(CurrentShape + 0x8);
-            const slotIdx = slotInfo.bitwiseAnd(SLOT_MASK) - slotInfo.bitwiseShiftRight(SLOT_SHIFT_RIGHT);
-            //获取对应属性索引的属性名
-            Properties[slotIdx] = get_property_from_shape(CurrentShape);
+            let slotIdx = slotInfo.bitwiseAnd(SLOT_MASK) - slotInfo.bitwiseShiftRight(SLOT_SHIFT_RIGHT);
+            if (slotIdx >= 0) {
+                //获取对应属性索引的属性名
+                Properties[slotIdx] = get_property_from_shape(CurrentShape);
+                ElementAddr = this._slots + slotIdx * 8;
+            }
+            else {
+                //获取slotfix中属性的属性名
+                slotIdx = Properties.length;
+                Properties[slotIdx] = get_property_from_shape(CurrentShape);
+                ElementAddr = this._Addr + 0x18 + slotInfo.bitwiseAnd(SLOT_MASK) * 8;
+            }
+
+            //获取属性名对应的属性值
+            const JSValue = read_u64(ElementAddr);
+            this._Properties.push(Properties[slotIdx] + ' : ' + JSValue.toString(16));
+
+            //读取下一个shape
             CurrentShape = read_u32(CurrentShape + 0x10);
         }
     }
