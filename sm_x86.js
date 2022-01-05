@@ -83,15 +83,30 @@ function byte_to_str(Byte) {
 }
 
 function read_u64(Addr) {
-    return host.memory.readMemoryValues(Addr, 1, 8)[0];
+    let Value = 0;
+    try {
+        Value = host.memory.readMemoryValues(Addr, 1, 8)[0];
+    } catch (err) {
+    }
+    return Value;
 }
 
 function read_u32(Addr) {
-    return host.memory.readMemoryValues(Addr, 1, 4)[0];
+    let Value = 0;
+    try {
+        Value = host.memory.readMemoryValues(Addr, 1, 4)[0];
+    } catch (err) {
+    }
+    return Value;
 }
 
 function read_u16(Addr) {
-    return host.memory.readMemoryValues(Addr, 1, 2)[0];
+    let Value = 0;
+    try {
+        Value = host.memory.readMemoryValues(Addr, 1, 2)[0];
+    } catch (err) {
+    }
+    return Value;
 }
 
 function jsvalue_to_instance(Addr) {
@@ -434,7 +449,6 @@ class __JSObject {
         //Class:name,flags
         const ClassNameAddr = read_u32(this._clasp);
         this._ClassName = host.memory.readString(ClassNameAddr);
-        const ClassFlagsAddr = read_u32(this._clasp + 4);
 
         if (this._ClassName == "Array") {
             //Array对象类型获取长度后直接返回
@@ -447,7 +461,6 @@ class __JSObject {
         const Properties = {};
         let CurrentShape = this._Shape;
         let ElementAddr = undefined;
-        let PropertyValue = undefined;
         //判断下一个shape是否为空
         while (read_u32(CurrentShape + 0x10).compareTo(0) != 0) {
             const slotInfo = read_u32(CurrentShape + 0x8);
