@@ -22,9 +22,11 @@ const STRING_LENGTH_SHIFT = host.parseInt64("4");
 const STRING_FLAG_MASK = host.parseInt64("0xF");
 
 const JSVAL_FLAG_ATOM = host.Int64(0x8);
+const JSVAL_FLAG_INLINE = host.Int64(0x4);
 
 const FlagToStringType = {
     [JSVAL_FLAG_ATOM]: "Atom",
+    [JSVAL_FLAG_INLINE]: "Inline",
 }
 
 const TagToName = {
@@ -155,6 +157,7 @@ class __JSString {
         if (FlagToStringType.hasOwnProperty(this._Flag)) {
             switch (FlagToStringType[this._Flag]) {
                 case "Atom":
+                case "Inline":
                     this._inlineStorage = read_u32(this._Addr + 4);
                     this._String = Array.from(host.memory.readMemoryValues(this._inlineStorage, this._length * 2, 1)).map(p => byte_to_str(p)).join("");
             }
@@ -528,7 +531,7 @@ class __JSObject {
     Display() {
         this.Logger("Content: " + this);
         if (this._ClassName != "Object") {
-            this.Logger("Properties: {" + this._Properties.join(", ") + "}");
+            this.Logger("Properties: {\n" + this._Properties.join(", \n") + "}");
         }
     }
 }
